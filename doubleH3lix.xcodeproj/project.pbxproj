@@ -10,6 +10,7 @@
 		6848D100203CE91700A0FFE2 /* offsets.mm in Sources */ = {isa = PBXBuildFile; fileRef = 6848D0FD203CE91700A0FFE2 /* offsets.mm */; };
 		6848D104203CE93100A0FFE2 /* liboffsetfinder64.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 6848D103203CE93100A0FFE2 /* liboffsetfinder64.a */; };
 		68805418203CEB060003A817 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 68805417203CEB060003A817 /* IOKit.framework */; };
+		82185B7B206067600061272B /* patchfinder64.c in Sources */ = {isa = PBXBuildFile; fileRef = 82185B792060675F0061272B /* patchfinder64.c */; };
 		824E20D72060232B00E051E9 /* phoenix in Resources */ = {isa = PBXBuildFile; fileRef = 824E20D62060232B00E051E9 /* phoenix */; };
 		824E20DA2060234100E051E9 /* exploit64.m in Sources */ = {isa = PBXBuildFile; fileRef = 824E20D82060234000E051E9 /* exploit64.m */; };
 		824E20DB2060234100E051E9 /* find.m in Sources */ = {isa = PBXBuildFile; fileRef = 824E20D92060234000E051E9 /* find.m */; };
@@ -37,6 +38,8 @@
 		6848D0FE203CE91700A0FFE2 /* v0rtex.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = v0rtex.h; sourceTree = "<group>"; };
 		6848D103203CE93100A0FFE2 /* liboffsetfinder64.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = liboffsetfinder64.a; path = doubleH3lix/liboffsetfinder64.a; sourceTree = "<group>"; };
 		68805417203CEB060003A817 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = IOKit.framework; sourceTree = "<group>"; };
+		82185B792060675F0061272B /* patchfinder64.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = patchfinder64.c; sourceTree = "<group>"; };
+		82185B7A206067600061272B /* patchfinder64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = patchfinder64.h; sourceTree = "<group>"; };
 		824E20D62060232B00E051E9 /* phoenix */ = {isa = PBXFileReference; lastKnownFileType = folder; path = phoenix; sourceTree = "<group>"; };
 		824E20D82060234000E051E9 /* exploit64.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = exploit64.m; path = doubleH3lix/phoenix/exploit64.m; sourceTree = "<group>"; };
 		824E20D92060234000E051E9 /* find.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = find.m; path = doubleH3lix/phoenix/find.m; sourceTree = "<group>"; };
@@ -131,6 +134,8 @@
 				87D07A64203EB74C00C7D96D /* pte_stuff.h */,
 				87F9E9AE2039C66D00C90C05 /* jailbreak.h */,
 				87F9E9AC2039C66500C90C05 /* jailbreak.mm */,
+				82185B792060675F0061272B /* patchfinder64.c */,
+				82185B7A206067600061272B /* patchfinder64.h */,
 				6848D0FB203CE91700A0FFE2 /* common.h */,
 				6848D0FC203CE91700A0FFE2 /* offsets.h */,
 				6848D0FD203CE91700A0FFE2 /* offsets.mm */,
@@ -227,6 +232,7 @@
 				87F9E9972039C51900C90C05 /* ViewController.m in Sources */,
 				87F9E9A22039C51900C90C05 /* main.m in Sources */,
 				87F9E9942039C51900C90C05 /* AppDelegate.m in Sources */,
+				82185B7B206067600061272B /* patchfinder64.c in Sources */,
 				87F9E9AD2039C66500C90C05 /* jailbreak.mm in Sources */,
 				6848D100203CE91700A0FFE2 /* offsets.mm in Sources */,
 			);
