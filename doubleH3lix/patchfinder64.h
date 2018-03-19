@@ -25,5 +25,6 @@ uint64_t find_cpacr_write(void);
 uint64_t find_str(const char *string);
 uint64_t find_amfiops(void);
 uint64_t find_sysbootnonce(void);
+uint64_t find_rootvnode(void);
 
 #endif

