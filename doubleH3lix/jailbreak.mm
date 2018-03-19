@@ -11,7 +11,7 @@ extern "C"{
 #include <stdint.h>
 
 #include "common.h"
-#include "v0rtex.h"
+#include "exploit64.h"
 
 typedef mach_port_t io_service_t;
 typedef mach_port_t io_connect_t;
@@ -49,6 +49,7 @@ extern int (*dsystem)(const char *);
 #define postProgress(prg) [[NSNotificationCenter defaultCenter] postNotificationName: @"JB" object:nil userInfo:@{@"JBProgress": prg}]
 
 #define KBASE 0xfffffff007004000
+
 mach_port_t tfp0 = 0;
 
 void kpp(uint64_t kernbase, uint64_t slide, tihmstar::offsetfinder64 *fi);
@@ -101,10 +102,9 @@ void resume_all_threads() {
 
 kern_return_t cb(task_t tfp0_, kptr_t kbase, void *data){
     resume_all_threads();
-    LOG("done v0rtex!\n");
     tfp0 = tfp0_;
     tihmstar::offsetfinder64 *fi = static_cast<tihmstar::offsetfinder64 *>(data);
-
+    
     try {
         kpp(kbase,kbase-KBASE,fi);
     } catch (tihmstar::exception &e) {
@@ -112,7 +112,7 @@ kern_return_t cb(task_t tfp0_, kptr_t kbase, void *data){
         NSString *err = [NSString stringWithFormat:@"Error: %d",e.code()];
         postProgress(err);
     }
-
+    
     return KERN_SUCCESS;
 }
 
@@ -609,26 +609,10 @@ void die(){
 
 extern "C" int jailbreak(void)
 {
-    tihmstar::offsetfinder64 fi("/System/Library/Caches/com.apple.kernelcaches/kernelcache");
-
-    offsets_t *off = NULL;
-    try {
-        off = get_offsets(&fi);
-    } catch (tihmstar::exception &e) {
-        LOG("Failed jailbreak!: %s [%u]", e.what(), e.code());
-        NSString *err = [NSString stringWithFormat:@"Offset Error: %d",e.code()];
-        postProgress(err);
-        return -1;
-    }catch (std::exception &e) {
-        LOG("Failed jailbreak!: %s", e.what());
-        NSString *err = [NSString stringWithFormat:@"FATAL offset Error:\n%s",e.what()];
-        postProgress(err);
-        return -1;
-    }
 
     LOG("v0rtex\n");
     suspend_all_threads();
-    if(v0rtex(off, &cb, &fi)){
+    if(get_kernel_task(&cb, NULL)){
         resume_all_threads();
         postProgress(@"Kernelexploit failed");
         printf("Kernelexploit failed, goodbye...\n");
